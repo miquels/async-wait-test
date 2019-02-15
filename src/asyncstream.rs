@@ -50,17 +50,16 @@ pub struct AsyncStream<Item, Error> {
     fut:    Box<Future<Item=(), Error=Error> + 'static + Send>,
 }
 
-impl<Item, Error> AsyncStream<Item, Error> {
+impl<Item, Error: 'static + Send> AsyncStream<Item, Error> {
     /// Create a new stream from a closure returning a Future 0.3,
     /// or an "async closure" (which is the same).
     ///
     /// The closure is passed one argument, the "yielder", which is
     /// a function that can be called to send a item to the stream.
-    pub fn new<F, R>(mut f: F) -> Self
-        where F: FnMut(Box<FnMut(Item) -> OncePending + Send>) -> R,
+    pub fn stream<F, R>(f: F) -> Self
+        where F: FnOnce(Box<FnMut(Item) -> OncePending + Send>) -> R,
               R: Future03<Output=Result<(), Error>> + Send + 'static,
               Item: 'static,
-              Error: 'static,
     {
         let item = InternalItem(Rc::new(Cell::new(None)));
         let item2 = InternalItem(item.0.clone());
@@ -71,6 +70,16 @@ impl<Item, Error> AsyncStream<Item, Error> {
         AsyncStream::<Item, Error> {
             item:   item2,
             fut:    Box::new(Compat0301::new(f(yielder).boxed())),
+        }
+    }
+
+    /// Create a stream that will produce exactly one item.
+    pub fn oneshot<I>(item: I) -> Self
+        where I: Into<Item>
+    {
+        AsyncStream::<Item, Error> {
+            item:   InternalItem(Rc::new(Cell::new(Some(item.into())))),
+            fut:    Box::new(futures::future::ok::<(), Error>(())),
         }
     }
 }
@@ -119,3 +128,4 @@ impl<Item, Error> hyper::body::Payload for AsyncStream<Item, Error>
         }
     }
 }
+
