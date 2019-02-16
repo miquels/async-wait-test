@@ -1,4 +1,5 @@
 use std::cell::Cell;
+use std::marker::PhantomData;
 use std::pin::Pin;
 use std::rc::Rc;
 
@@ -16,8 +17,29 @@ use hyper;
 /// Future returned by the yield function. All it does is to return
 /// the "Pending" state once. The next time it is polled it will
 /// return "Ready".
-pub struct OncePending {
-    state:  bool,
+pub struct OncePending<E=()> {
+    state:      bool,
+    phantom:    PhantomData<E>,
+}
+
+impl<E> OncePending<E> {
+    fn new() -> OncePending<E> {
+        OncePending{ state: false, phantom: PhantomData::<E>, }
+    }
+}
+
+impl<E> Future for OncePending<E> {
+    type Item = ();
+    type Error = E;
+
+    fn poll(&mut self) -> Result<Async<Self::Item>, Self::Error> {
+        if self.state {
+            Ok(Async::Ready(())
+        } else {
+            self.state = true;
+            Ok(Async::NotReady)
+        }
+    }
 }
 
 impl Future03 for OncePending {
@@ -65,7 +87,7 @@ impl<Item, Error: 'static + Send> AsyncStream<Item, Error> {
         let item2 = InternalItem(item.0.clone());
         let yielder = Box::new(move |yield_item| {
             item.0.set(Some(yield_item));
-            OncePending{ state: false }
+            OncePending::new()
         });
         AsyncStream::<Item, Error> {
             item:   item2,
@@ -79,7 +101,7 @@ impl<Item, Error: 'static + Send> AsyncStream<Item, Error> {
     {
         AsyncStream::<Item, Error> {
             item:   InternalItem(Rc::new(Cell::new(Some(item.into())))),
-            fut:    Box::new(futures::future::ok::<(), Error>(())),
+            fut:    Box::new(OncePending::<Error>::new()),
         }
     }
 }
