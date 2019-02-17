@@ -1,7 +1,7 @@
 use std::cell::Cell;
 use std::marker::PhantomData;
 use std::pin::Pin;
-use std::rc::Rc;
+use std::sync::Arc;
 
 use futures::{Async, Future, Stream};
 
@@ -14,21 +14,21 @@ use futures03::compat::Compat as Compat0301;
 use bytes;
 use hyper;
 
-/// Future returned by the yield function. All it does is to return
-/// the "Pending" state once. The next time it is polled it will
-/// return "Ready".
-pub struct OncePending<E=()> {
+/// Future returned by the Sender.send() method, completes when the
+/// item is sent. All it actually does is to return the "Pending" state
+/// once. The next time it is polled it will return "Ready".
+pub struct AsyncSender<E=()> {
     state:      bool,
     phantom:    PhantomData<E>,
 }
 
-impl<E> OncePending<E> {
-    fn new() -> OncePending<E> {
-        OncePending{ state: false, phantom: PhantomData::<E>, }
+impl<E> AsyncSender<E> {
+    fn new() -> AsyncSender<E> {
+        AsyncSender{ state: false, phantom: PhantomData::<E>, }
     }
 }
 
-impl<E> Future for OncePending<E> {
+impl<E> Future for AsyncSender<E> {
     type Item = ();
     type Error = E;
 
@@ -42,7 +42,7 @@ impl<E> Future for OncePending<E> {
     }
 }
 
-impl Future03 for OncePending {
+impl Future03 for AsyncSender {
     type Output = ();
 
     fn poll(mut self: Pin<&mut Self>, _lw: &LocalWaker) -> Poll03<Self::Output> {
@@ -57,9 +57,26 @@ impl Future03 for OncePending {
 
 // Only internally used by one AsyncStream and never shared
 // in any other way, so we don't have to use Arc<Mutex<..>>.
-struct InternalItem<I>(Rc<Cell<Option<I>>>);
-unsafe impl<I> Sync for InternalItem<I> {}
-unsafe impl<I> Send for InternalItem<I> {}
+pub struct Sender<I, E>(Arc<Cell<Option<I>>>, PhantomData<E>);
+unsafe impl<I, E> Sync for Sender<I, E> {}
+unsafe impl<I, E> Send for Sender<I, E> {}
+
+impl<I, E> Sender<I, E> {
+    fn new(item_opt: Option<I>) -> Sender<I, E> {
+        Sender(Arc::new(Cell::new(item_opt)), PhantomData::<E>)
+    }
+
+    fn clone(&self) -> Sender<I, E> {
+        Sender(self.0.clone(), PhantomData::<E>)
+    }
+
+    pub fn send<T>(&mut self, item: T) -> AsyncSender
+        where T: Into<I>,
+    {
+        self.0.set(Some(item.into()));
+        AsyncSender::new()
+    }
+}
 
 /// An AsyncStream is an abstraction around a future, where the
 /// future can internally loop and yield items.
@@ -68,7 +85,7 @@ unsafe impl<I> Send for InternalItem<I> {}
 /// because it's main use-case is to generate a body stream for
 /// a hyper service function.
 pub struct AsyncStream<Item, Error> {
-    item:   InternalItem<Item>,
+    item:   Sender<Item, Error>,
     fut:    Box<Future<Item=(), Error=Error> + 'static + Send>,
 }
 
@@ -76,22 +93,17 @@ impl<Item, Error: 'static + Send> AsyncStream<Item, Error> {
     /// Create a new stream from a closure returning a Future 0.3,
     /// or an "async closure" (which is the same).
     ///
-    /// The closure is passed one argument, the "yielder", which is
-    /// a function that can be called to send a item to the stream.
+    /// The closure is passed one argument, the sender, which has a
+    /// method "send" that can be called to send a item to the stream.
     pub fn stream<F, R>(f: F) -> Self
-        where F: FnOnce(Box<FnMut(Item) -> OncePending + Send>) -> R,
+        where F: FnOnce(Sender<Item, Error>) -> R,
               R: Future03<Output=Result<(), Error>> + Send + 'static,
               Item: 'static,
     {
-        let item = InternalItem(Rc::new(Cell::new(None)));
-        let item2 = InternalItem(item.0.clone());
-        let yielder = Box::new(move |yield_item| {
-            item.0.set(Some(yield_item));
-            OncePending::new()
-        });
+        let sender = Sender::new(None);
         AsyncStream::<Item, Error> {
-            item:   item2,
-            fut:    Box::new(Compat0301::new(f(yielder).boxed())),
+            item:   sender.clone(),
+            fut:    Box::new(Compat0301::new(f(sender).boxed())),
         }
     }
 
@@ -100,8 +112,8 @@ impl<Item, Error: 'static + Send> AsyncStream<Item, Error> {
         where I: Into<Item>
     {
         AsyncStream::<Item, Error> {
-            item:   InternalItem(Rc::new(Cell::new(Some(item.into())))),
-            fut:    Box::new(OncePending::<Error>::new()),
+            item:   Sender::new(Some(item.into())),
+            fut:    Box::new(AsyncSender::<Error>::new()),
         }
     }
 }

@@ -18,12 +18,12 @@ use asyncstream::AsyncStream;
 
 macro_rules! blocking_io {
     ($expression:expr) => (
-		futures::future::poll_fn(|| {
+        await!(futures::future::poll_fn(|| {
             tokio_threadpool::blocking(|| -> std::io::Result<_> {
                 $expression
             })
             .map_err(|_| panic!("the threadpool shut down"))
-        }).then(|r| r.unwrap()).compat()
+        }).then(|r| r.unwrap()).compat())
     )
 }
 
@@ -52,24 +52,24 @@ impl FileServer {
             let mut response = Response::builder();
 
             let path = req.uri().path();
-            let mut file = await!(blocking_io!({
+            let mut file = blocking_io!({
                 let f = fs::File::open(path)?;
                 if f.metadata()?.is_dir() {
                     return Err(io::Error::new(io::ErrorKind::Other, "is a directory"));
                 }
                 Ok(f)
-            }))?;
+            })?;
 
             response.status(StatusCode::OK);
 
-            let body_stream = AsyncStream::stream(async move |mut yield_item| {
+            let body_stream = AsyncStream::stream(async move |mut sender| {
                 let mut buffer = [0u8; 65536];
                 loop {
-                    let n = await!(blocking_io!{ file.read(&mut buffer[..]) })?;
+                    let n = blocking_io!(file.read(&mut buffer[..]))?;
                     if n == 0 {
                         break;
                     }
-                    await!(yield_item(buffer[0..n].into()));
+                    await!(sender.send(&buffer[0..n]));
                 }
                 Ok(())
             });
