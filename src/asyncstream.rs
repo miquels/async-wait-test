@@ -1,4 +1,5 @@
 use std::cell::Cell;
+use std::fmt;
 use std::marker::PhantomData;
 use std::pin::Pin;
 use std::sync::Arc;
@@ -70,10 +71,23 @@ impl<I, E> Sender<I, E> {
         Sender(self.0.clone(), PhantomData::<E>)
     }
 
+    /// Send one item to the stream.
     pub fn send<T>(&mut self, item: T) -> AsyncSender
         where T: Into<I>,
     {
         self.0.set(Some(item.into()));
+        AsyncSender::new()
+    }
+
+    /// If Item implements From<Vec<u8>>, then the write! macro will
+    /// work, and it'll return a AsyncSender future.
+    #[allow(dead_code)]
+    pub fn write_fmt(&mut self, args: fmt::Arguments) -> AsyncSender
+        where I: From<Vec<u8>>
+    {
+        let mut s = String::new();
+        let _ = fmt::write(&mut s, args);
+        self.0.set(Some(s.into_bytes().into()));
         AsyncSender::new()
     }
 }
