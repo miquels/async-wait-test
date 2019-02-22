@@ -143,8 +143,7 @@ fn main() {
     // address to listen on.
     let addr = ([127, 0, 0, 1], 3000).into();
 
-    // this is a Hyper construct that makes sure that incoming
-    // requests get served by the `handler` function.
+    // create a hyper service wrapper for our handler.
     let make_service = move || {
         hyper::service::service_fn(move |req| {
             handler(req)
