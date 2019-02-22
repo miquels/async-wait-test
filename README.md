@@ -3,9 +3,13 @@
 
 Toying around with tokio 0.1, futures 0.3-alpha, and async/wait.
 
-- `src/asyncstream.rs` gives you a way of `yield`ing items to a stream.
-- `src/main.rs` uses that, and async/await, and `tokio_threadpool::blocking`
-  to implement a very basic fileserver that is async and non-blocking.
+src/main.rs implements a very basic HTTP fileserver, using tokio 0.1,
+futures 0.3-alpha, and async/await.
+
+The 0.1 compatibility methods from (nightly) futures@0.3 are used to
+map the new futures from/to the old (stable) ones that tokio uses.
+
+The code is commented extensively.
 
 ## Docs used
 
