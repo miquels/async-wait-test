@@ -5,12 +5,12 @@ authors = ["Miquel van Smoorenburg <mikevs@xs4all.net>"]
 edition = "2018"
 
 [dependencies]
-futures = { package = "futures", version = "0.1" }
-futures03 = { package = "futures-preview", version = "0.3.0-alpha.12", features = ["io-compat"] }
-hyper = "0.12"
+futures = { package = "futures", version = "0.1.25" }
+futures03 = { package = "futures-preview", version = "0.3.0-alpha.13", features = ["io-compat"] }
+hyper = "0.12.24"
 tokio = "0.1.15"
 bytes = "0.4.11"
-http = "0.1.15"
+http = "0.1.16"
 tokio-threadpool = "0.1.11"
 log = "0.4.6"
 env_logger = "0.6.0"
